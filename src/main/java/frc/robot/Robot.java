@@ -31,7 +31,7 @@ public class Robot extends TimedRobot {
   private CANSparkMax leftFront, leftRear, rightFront, rightRear; // Drive Train Speed Controllers (Spark MAX -> NEO)
   private DifferentialDrive driveTrain;
 
-  private CANSparkMax elevator;
+  private CANSparkMax elevator; // Motor for raising/lowering elevator
 
   private DoubleSolenoid clawOpenCloseSolenoid;
 
@@ -47,6 +47,7 @@ public class Robot extends TimedRobot {
    */
   @Override
   public void robotInit() {
+    // Initialize drivetrain
     leftFront = new CANSparkMax(0, MotorType.kBrushless);
     leftRear = new CANSparkMax(1, MotorType.kBrushless);
     SpeedControllerGroup m_left = new SpeedControllerGroup(leftFront, leftRear);
@@ -57,6 +58,7 @@ public class Robot extends TimedRobot {
 
     driveTrain = new DifferentialDrive(m_left, m_right);
 
+    // Initialize arm
     elevator = new CANSparkMax(4, MotorType.kBrushless);
 
     clawOpenCloseSolenoid = new DoubleSolenoid(0, 1);
@@ -64,7 +66,11 @@ public class Robot extends TimedRobot {
     frontClimbSolenoid = new DoubleSolenoid(4, 5);
     backClimbSolenoid = new DoubleSolenoid(6, 7);
 
+    // Initialize other miscelanneous objects
     robotTimer = new Timer();
+
+    driveStick = new Joystick(0);
+    armGamepad = new Joystick(1);
 
     CameraServer.getInstance().startAutomaticCapture();
   }
@@ -112,6 +118,9 @@ public class Robot extends TimedRobot {
    */
   @Override
   public void teleopPeriodic() {
+    double y = driveStick.getY() * driveStick.getThrottle();
+    double z = driveStick.getTwist() * driveStick.getThrottle();
+    driveTrain.arcadeDrive(y, z);
   }
 
   /**

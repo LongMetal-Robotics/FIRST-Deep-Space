@@ -8,6 +8,8 @@
 
 package frc.robot;
 
+import javax.lang.model.util.ElementScanner6;
+
 // Import dependencies
 import com.revrobotics.CANSparkMax;
 import com.revrobotics.CANSparkMaxLowLevel.MotorType;
@@ -39,7 +41,7 @@ public class Robot extends TimedRobot {
 
   private Timer robotTimer;
 
-  private Joystick driveStick, armGamepad;
+  private Joystick driveStickLeft, driveStickRight, armGamepad;
 
   /**
    * This function is run when the robot is first started up and should be
@@ -69,8 +71,9 @@ public class Robot extends TimedRobot {
     // Initialize other miscelanneous objects
     robotTimer = new Timer();
 
-    driveStick = new Joystick(0);
-    armGamepad = new Joystick(1);
+    driveStickLeft = new Joystick(0);
+    driveStickRight = new Joystick(1);
+    armGamepad = new Joystick(2);
 
     CameraServer.getInstance().startAutomaticCapture();
   }
@@ -118,9 +121,52 @@ public class Robot extends TimedRobot {
    */
   @Override
   public void teleopPeriodic() {
-    double y = driveStick.getY() * driveStick.getThrottle();
-    double z = driveStick.getTwist() * driveStick.getThrottle();
-    driveTrain.arcadeDrive(y, z);
+    if (driveStickLeft.getRawButton(1)&&!(driveStickRight.getRawButton(1)))
+    {
+      double y = driveStickLeft.getY() * driveStickLeft.getThrottle();
+      driveTrain.arcadeDrive(y, 0);
+    } else if (driveStickRight.getRawButton(1)&&!(driveStickLeft.getRawButton(1)))
+    {
+      double y = driveStickRight.getY() * driveStickRight.getThrottle();
+      driveTrain.arcadeDrive(y, 0);
+    } else if ((driveStickLeft.getRawButton(1)&&driveStickRight.getRawButton(1))&&Math.abs(driveStickLeft.getY())>Math.abs(driveStickRight.getY()))
+    {
+      double y = driveStickLeft.getY() * driveStickLeft.getThrottle();
+      driveTrain.arcadeDrive(y, 0);
+    } else if ((driveStickLeft.getRawButton(1)&&driveStickRight.getRawButton(1))&&Math.abs(driveStickRight.getY())>Math.abs(driveStickLeft.getY()))
+    {
+      double y = driveStickRight.getY() * driveStickRight.getThrottle();
+      driveTrain.arcadeDrive(y, 0);
+    } else
+    {
+      double left = driveStickLeft.getY() * driveStickLeft.getThrottle();
+      double right = driveStickRight.getY() * driveStickRight.getThrottle();
+      driveTrain.tankDrive(left, right);
+    }
+
+    if (armGamepad.getRawButton(5)&&!armGamepad.getRawButton(6))
+    {
+      double y = armGamepad.getRawAxis(1);
+      driveTrain.arcadeDrive(y, 0);
+    } else if (!armGamepad.getRawButton(5)&&armGamepad.getRawButton(6))
+    {
+      double y = armGamepad.getRawAxis(2);
+      driveTrain.arcadeDrive(y, 0);
+    } else if ((armGamepad.getRawButton(5)&&armGamepad.getRawButton(6))&&Math.abs(armGamepad.getRawAxis(1))<Math.abs(armGamepad.getRawAxis(2)))
+    {
+      double y = armGamepad.getRawAxis(1);
+      driveTrain.arcadeDrive(y, 0);
+    } else if ((armGamepad.getRawButton(5)&&armGamepad.getRawButton(6))&&Math.abs(armGamepad.getRawAxis(1))>Math.abs(armGamepad.getRawAxis(2)))
+    {
+      double y = armGamepad.getRawAxis(2);
+      driveTrain.arcadeDrive(y, 0);
+    } else
+    {
+      double left = armGamepad.getRawAxis(1);
+      double right = armGamepad.getRawAxis(2);
+      driveTrain.tankDrive(left, right);
+    }
+
   }
 
   /**

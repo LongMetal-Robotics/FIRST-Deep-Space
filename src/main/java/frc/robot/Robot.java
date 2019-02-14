@@ -5,174 +5,284 @@
 /* the project.                                                               */
 /*----------------------------------------------------------------------------*/
 
-
 package frc.robot;
+
 
 import javax.lang.model.util.ElementScanner6;
 
-// Import dependencies
-import com.revrobotics.CANSparkMax;
+//Import needed classes
+import com.ctre.phoenix.motorcontrol.ControlMode;	// Import classes from CTRE
+import com.ctre.phoenix.motorcontrol.can.TalonSRX;
+import com.ctre.phoenix.motorcontrol.*;
+
+import com.revrobotics.CANSparkMax; 
+import com.revrobotics.CANDigitalInput; 			//import class (spark max) from rev robotics
 import com.revrobotics.CANSparkMaxLowLevel.MotorType;
 
-import edu.wpi.first.wpilibj.drive.DifferentialDrive;
+import edu.wpi.first.wpilibj.CAN;
+import edu.wpi.first.wpilibj.DigitalInput;
+// import edu.wpi.first.wpilibj.CameraServer;	// Import WPILib classes
 import edu.wpi.first.wpilibj.DoubleSolenoid;
-import edu.wpi.first.wpilibj.Joystick;
-import edu.wpi.first.wpilibj.SpeedControllerGroup;
-import edu.wpi.first.wpilibj.Timer;
 import edu.wpi.first.wpilibj.TimedRobot;
+import edu.wpi.first.wpilibj.Joystick;
+import edu.wpi.first.wpilibj.Solenoid;
+import edu.wpi.first.wpilibj.SpeedControllerGroup;
+import edu.wpi.first.wpilibj.drive.DifferentialDrive;
+import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
+import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
+import edu.wpi.cscore.UsbCamera;
 import edu.wpi.first.cameraserver.CameraServer;
+//import edu.wpi.first.wpilibj.Sendable;
 
-/**
- * The VM is configured to automatically run this class, and to call the
- * functions corresponding to each mode, as described in the TimedRobot
- * documentation. If you change the name of this class or the package after
- * creating this project, you must also update the build.gradle file in the
- * project.
- */
+import edu.wpi.first.networktables.NetworkTable;
+import edu.wpi.first.networktables.NetworkTableEntry;
+import edu.wpi.first.networktables.NetworkTableInstance;
+
 public class Robot extends TimedRobot {
-  private CANSparkMax leftFront, leftRear, rightFront, rightRear; // Drive Train Speed Controllers (Spark MAX -> NEO)
-  private DifferentialDrive driveTrain;
+	private final int IMG_WIDTH = 320;
+	private final int IMG_HEIGHT = 240;
 
-  private CANSparkMax elevator; // Motor for raising/lowering elevator
+	// Create objects
+	private DifferentialDrive driveTrain;	// Drive train
+	// Talons
+	private TalonSRX topClaw;	// running the top belt on the claw
+	private TalonSRX tallDrive;	// drive the climb mini drive train
+	
+	// Controllers
+  	private Joystick driveStickLeft;
+  	private Joystick driveStickRight;	// Joystick
+	private Joystick armGamepad;	// Gamepad
 
-  private DoubleSolenoid clawOpenCloseSolenoid;
+ 	public SendableChooser<String> controls = new SendableChooser<>(); //SendableChooser for drive type
+	public String controlType;
 
-  private DoubleSolenoid stopperPiston, frontClimbSolenoid, backClimbSolenoid;  // Climb pneumatics
+	public SendableChooser<String> matchPhase = new SendableChooser<>();  //SendableChooser for button assignment
+	public String buttonAssignment;
 
-  private Timer robotTimer;
+	// Solenoids
+	private DoubleSolenoid climbBack;	//(Double)Solenoids for lifting the robot at the end of the match
+	private DoubleSolenoid climbFront;
+	private Solenoid clawOpen;
+	private Solenoid clawMode;
+	
 
-  private Joystick driveStickLeft, driveStickRight, armGamepad;
+	private DigitalInput jumpA;		//In case we use jumpers for position again this year
+	private DigitalInput jumpB;
 
-  /**
-   * This function is run when the robot is first started up and should be
-   * used for any initialization code.
-   */
-  @Override
-  public void robotInit() {
-    // Initialize drivetrain
-    leftFront = new CANSparkMax(0, MotorType.kBrushless);
-    leftRear = new CANSparkMax(1, MotorType.kBrushless);
-    SpeedControllerGroup m_left = new SpeedControllerGroup(leftFront, leftRear);
 
-    rightFront = new CANSparkMax(2, MotorType.kBrushless);
-    rightRear = new CANSparkMax(3, MotorType.kBrushless);
-    SpeedControllerGroup m_right = new SpeedControllerGroup(rightFront, rightRear);
+	//vision?
+	private double centerX = 0.0;
 
-    driveTrain = new DifferentialDrive(m_left, m_right);
 
-    // Initialize arm
-    elevator = new CANSparkMax(4, MotorType.kBrushless);
 
-    clawOpenCloseSolenoid = new DoubleSolenoid(0, 1);
-    stopperPiston = new DoubleSolenoid(2, 3);
-    frontClimbSolenoid = new DoubleSolenoid(4, 5);
-    backClimbSolenoid = new DoubleSolenoid(6, 7);
+	// Create variables to store joystick and limit switches values
+	boolean button1Pressed = false;	// Spinny bois spin in, failsafe false
+	boolean button2Pressed = false;	// Spinny bois spin out, failsafe false
+	boolean button3Pressed = false;	// Arm down, failsafe false
+	boolean button4Pressed = false;	// Arm open, failsafe false
+	boolean button5Pressed = false;	// Arm up, failsafe false
+	boolean button6Pressed = false;	// Arm close, failsafe false
+	boolean button12Pressed = false;	// Button 12, failsafe false
+	boolean RB = false;				// Spinny bois spin in, failsafe false
+	boolean LB = false;				// Spinny bois spin out, failsafe false
+	boolean jumperA = false;		// Position jumper A, failsafe false
+	boolean jumperB = false;		// Position jumper B, failsafe false
+	
+	double speed = 0.5;		// Drive speed multiplier, initial 0.5
+	double driveY = 0.0;	// Drive y (f/b), initial 0
+	double driveX = 0.0;	// Drive y (rot), initial 0
 
-    // Initialize other miscelanneous objects
-    robotTimer = new Timer();
+	int robotLocation = 0;	// Robot location, failsafe 0 (go nowhere)
 
-    driveStickLeft = new Joystick(0);
-    driveStickRight = new Joystick(1);
-    armGamepad = new Joystick(2);
+	String gameData = "";	// Game data, failsafe empty
 
-    CameraServer.getInstance().startAutomaticCapture();
-  }
 
-  /**
-   * This function is called every robot packet, no matter the mode. Use
-   * this for items like diagnostics that you want ran during disabled,
-   * autonomous, teleoperated and test.
-   *
-   * <p>This runs after the mode specific periodic functions, but before
-   * LiveWindow and SmartDashboard integrated updating.
-   */
-  @Override
-  public void robotPeriodic() {
-  }
+	private NetworkTableEntry sizeEntry;
+	private NetworkTableEntry xEntry;
+	private NetworkTableEntry yEntry;
+	private NetworkTable table;
 
-  /**
-   * This autonomous (along with the chooser code above) shows how to select
-   * between different autonomous modes using the dashboard. The sendable
-   * chooser code works with the Java SmartDashboard. If you prefer the
-   * LabVIEW Dashboard, remove all of the chooser code and uncomment the
-   * getString line to get the auto name from the text box below the Gyro
-   *
-   * <p>You can add additional auto modes by adding additional comparisons to
-   * the switch structure below with additional strings. If using the
-   * SendableChooser make sure to add them to the chooser code above as well.
-   */
-  @Override
-  public void autonomousInit() {
-    // Reset timer, in case it started for some reason
-    robotTimer.stop();
-    robotTimer.reset();
-    robotTimer.start();
-  }
+	@Override
+	public void robotInit() {	// Run when robot is turned on. Initialize m.controllers, etc.
+		// Initialize drive train
+		CANSparkMax m_rearLeft = new CANSparkMax(0, MotorType.kBrushless); //left front
+		CANSparkMax m_frontLeft = new CANSparkMax(1, MotorType.kBrushless); //left back
+		SpeedControllerGroup leftmotors = new SpeedControllerGroup(m_rearLeft, m_frontLeft);
 
-  /**
-   * This function is called periodically during autonomous.
-   */
-  @Override
-  public void autonomousPeriodic() {
-  }
 
-  /**
-   * This function is called periodically during operator control.
-   */
-  @Override
-  public void teleopPeriodic() {
-    if (driveStickLeft.getRawButton(1)&&!(driveStickRight.getRawButton(1)))
-    {
-      double y = driveStickLeft.getY() * driveStickLeft.getThrottle();
-      driveTrain.arcadeDrive(y, 0);
-    } else if (driveStickRight.getRawButton(1)&&!(driveStickLeft.getRawButton(1)))
-    {
-      double y = driveStickRight.getY() * driveStickRight.getThrottle();
-      driveTrain.arcadeDrive(y, 0);
-    } else if ((driveStickLeft.getRawButton(1)&&driveStickRight.getRawButton(1))&&Math.abs(driveStickLeft.getY())>Math.abs(driveStickRight.getY()))
-    {
-      double y = driveStickLeft.getY() * driveStickLeft.getThrottle();
-      driveTrain.arcadeDrive(y, 0);
-    } else if ((driveStickLeft.getRawButton(1)&&driveStickRight.getRawButton(1))&&Math.abs(driveStickRight.getY())>Math.abs(driveStickLeft.getY()))
-    {
-      double y = driveStickRight.getY() * driveStickRight.getThrottle();
-      driveTrain.arcadeDrive(y, 0);
-    } else
-    {
-      double left = driveStickLeft.getY() * driveStickLeft.getThrottle();
-      double right = driveStickRight.getY() * driveStickRight.getThrottle();
-      driveTrain.tankDrive(left, right);
-    }
+		CANSparkMax m_rearRight = new CANSparkMax(2, MotorType.kBrushless); //right front
+		CANSparkMax m_frontRight = new CANSparkMax(3, MotorType.kBrushless); //right back
+		SpeedControllerGroup rightmotors = new SpeedControllerGroup(m_rearRight, m_frontRight);
 
-    if (armGamepad.getRawButton(5)&&!armGamepad.getRawButton(6))
-    {
-      double y = armGamepad.getRawAxis(1);
-      driveTrain.arcadeDrive(y, 0);
-    } else if (!armGamepad.getRawButton(5)&&armGamepad.getRawButton(6))
-    {
-      double y = armGamepad.getRawAxis(2);
-      driveTrain.arcadeDrive(y, 0);
-    } else if ((armGamepad.getRawButton(5)&&armGamepad.getRawButton(6))&&Math.abs(armGamepad.getRawAxis(1))<Math.abs(armGamepad.getRawAxis(2)))
-    {
-      double y = armGamepad.getRawAxis(1);
-      driveTrain.arcadeDrive(y, 0);
-    } else if ((armGamepad.getRawButton(5)&&armGamepad.getRawButton(6))&&Math.abs(armGamepad.getRawAxis(1))>Math.abs(armGamepad.getRawAxis(2)))
-    {
-      double y = armGamepad.getRawAxis(2);
-      driveTrain.arcadeDrive(y, 0);
-    } else
-    {
-      double left = armGamepad.getRawAxis(1);
-      double right = armGamepad.getRawAxis(2);
-      driveTrain.tankDrive(left, right);
-    }
+		driveTrain = new DifferentialDrive(leftmotors, rightmotors);
 
-  }
+		CANSparkMax m_elevator = new CANSparkMax(4, MotorType.kBrushless); //for elevator
+		
+		climbBack = new DoubleSolenoid(0, 1); //parameters are in and out channels
+		climbFront = new DoubleSolenoid(2, 3);
+		clawOpen = new Solenoid(4);
+		clawMode = new Solenoid(5);
+		/*middleClaw = new DoubleSolenoid(0, 1);
+		clawLeft = new Solenoid(2);
+		clawRight = new Solenoid(2);*/
 
-  /**
-   * This function is called periodically during test mode.
-   */
-  @Override
-  public void testPeriodic() {
-  }
-}
+		jumpA = new DigitalInput(2);
+		jumpB = new DigitalInput(3);
+
+
+		// Initialize arm
+		topClaw = new TalonSRX(0);	// Initialize top claw belt motor
+		tallDrive = new TalonSRX(1); // Initialize tall drive wheel motor
+		
+		
+		// Initialize controllers
+    driveStickLeft = new Joystick(0);	// Initialize left joystick
+    driveStickRight = new Joystick(1); //Initialize right joystick
+	armGamepad = new Joystick(2);	// Initialize gamepad
+
+	//controls = new SendableChooser<Integer>();
+	controls.setDefaultOption("Joysticks", "Tank");
+	controls.addOption("One joystick", "Arcade");
+	controls.addOption("Controller", "Contr");
+	controlType = controls.getSelected();
+	System.out.println(controlType);
+	SmartDashboard.putString("Controls selected", controlType);
+	SmartDashboard.putData("Teleop controls", controls);
+
+	matchPhase.setDefaultOption("Teleoperated", "Regular Uses");
+	matchPhase.addOption("Climb time", "Climbing assignments");
+	matchPhase.addOption("Already climbed", "Can't do both");
+	buttonAssignment = matchPhase.getSelected();
+	System.out.println(buttonAssignment);
+	SmartDashboard.putString("Button uses", buttonAssignment);
+	SmartDashboard.putData("Match Phase", matchPhase);
+			// Find new camera server code!!!  NP 1/22/2019
+		 //CameraServer.getInstance().startAutomaticCapture();	// Start camera stream to DS
+
+		 UsbCamera camera = CameraServer.getInstance().startAutomaticCapture();
+		camera.setResolution(IMG_WIDTH, IMG_HEIGHT);
+
+		NetworkTableInstance inst = NetworkTableInstance.getDefault();
+		table = inst.getTable("GRIP").getSubTable("myBlobsReport");
+	}
+
+	@Override
+	public void autonomousPeriodic() {
+		sizeEntry = table.getEntry("size");
+		xEntry = table.getEntry("x");
+		yEntry = table.getEntry("y");
+
+		double size = sizeEntry.getDoubleArray(new double[1])[0];
+		centerX = xEntry.getDoubleArray(new double[1])[0];
+		double y = yEntry.getDoubleArray(new double[1])[0];
+
+		System.out.println("Blob 0 size: " + size + " (" + centerX + ", " + y + ")");
+
+		driveTrain.arcadeDrive(0.1, ((IMG_WIDTH / 2) - centerX) * 0.01);
+	}
+
+	@Override
+	public void teleopPeriodic() {	// Periodic teleop code (run every (10ms?) while teleop is active)
+		SmartDashboard.updateValues();
+		controlType=controls.getSelected();
+		System.out.println(controlType);
+		if (controlType == "Tank")
+		{	
+			if (driveStickLeft.getRawButton(1) && !driveStickRight.getRawButton(1)) {
+				double y = driveStickLeft.getY() * driveStickLeft.getThrottle();
+				driveTrain.arcadeDrive(-1 * y, 0);
+			} else if (driveStickRight.getRawButton(1) && !driveStickLeft.getRawButton(1)) {
+				double y = driveStickRight.getY() * driveStickRight.getThrottle();
+				driveTrain.arcadeDrive(-1 * y, 0);
+			} else if ((driveStickLeft.getRawButton(1) && driveStickRight.getRawButton(1))&&Math.abs(driveStickLeft.getY())<Math.abs(driveStickRight.getY())) {
+				double y = driveStickLeft.getY() * driveStickLeft.getThrottle();
+				driveTrain.arcadeDrive(-1 * y, 0);
+			} else if ((driveStickLeft.getRawButton(1) && driveStickRight.getRawButton(1))&&Math.abs(driveStickRight.getY())<Math.abs(driveStickLeft.getY())) {
+				double y = driveStickRight.getY() * driveStickRight.getThrottle();
+				driveTrain.arcadeDrive(-1 * y, 0);
+			} else {
+				double left = driveStickLeft.getY() * driveStickLeft.getThrottle();
+				double right = driveStickRight.getY() * driveStickRight.getThrottle();
+				driveTrain.tankDrive(-1 * left, -1 * right);
+			}
+		} else if (controlType == "Arcade")
+		{
+			speed = driveStickLeft.getRawAxis(3) + 1.1;	// Get value of joystick throttle
+			driveY = -driveStickLeft.getY() / speed;
+			driveX = driveStickLeft.getZ() / 1.5;
+			driveTrain.arcadeDrive(driveY, driveX);
+		} else  // Does this need to be titled controlType == gamepad??  -Mr P
+		{
+			if (armGamepad.getRawButton(5)&&!armGamepad.getRawButton(6))
+   			{
+    		  double y = -1 * armGamepad.getRawAxis(1);
+    		  driveTrain.arcadeDrive(y, 0);
+    		} else if (!armGamepad.getRawButton(5)&&armGamepad.getRawButton(6))
+    		{
+    		  double y = -1 * armGamepad.getRawAxis(5);
+    		  driveTrain.arcadeDrive(y, 0);
+    		} else if ((armGamepad.getRawButton(5)&&armGamepad.getRawButton(6))&&Math.abs(armGamepad.getRawAxis(1))<Math.abs(armGamepad.getRawAxis(2)))
+    		{
+    		  double y = -1 * armGamepad.getRawAxis(1);
+    		  driveTrain.arcadeDrive(y, 0);
+    		} else if ((armGamepad.getRawButton(5)&&armGamepad.getRawButton(6))&&Math.abs(armGamepad.getRawAxis(1))>Math.abs(armGamepad.getRawAxis(2)))
+    		{
+    		  double y = -1 * armGamepad.getRawAxis(5);
+    		  driveTrain.arcadeDrive(y, 0);
+    		} else
+    		{
+    		  double left = -1 * armGamepad.getRawAxis(1);
+    		  double right = -1 * armGamepad.getRawAxis(5);
+    		  driveTrain.tankDrive(left, right);
+			}
+		}
+		
+
+		button3Pressed = false;
+		button5Pressed = false;
+		if (armGamepad.getPOV() == 180) {button3Pressed = true; /*System.out.println("[INFO] POV Down");*/}
+		if (armGamepad.getPOV() == 0) {button5Pressed = true; /*System.out.println("[INFO] POV Up");*/}
+		if (armGamepad.getRawButton(2) == true) {button4Pressed = true; /*System.out.println("[INFO] Close Gripper");*/} else { button4Pressed = false;}
+		if (armGamepad.getRawButton(4) == true) {button6Pressed = true; /*System.out.println("[INFO] Open Gripper");*/} else { button6Pressed = false;}
+		
+		//button boi hours
+		
+		//buttons we need
+		
+		/*
+		if(true) //button for climb up
+		{
+			climbFront.set(DoubleSolenoid.Value.kForward);	//put both climb soleniods extended
+			climbBack.set(DoubleSolenoid.Value.kForward);
+		}
+		if(true) //button for climb up
+		{
+			climbFront.set(DoubleSolenoid.Value.kForward);	//put both climb soleniods extended
+			climbBack.set(DoubleSolenoid.Value.kForward);
+		}
+		*/
+
+		/* Claw-
+			Hatch Panel Mode / Cargo Mode (piston up/down)
+			Open
+			Close
+			//^ Vanessa added this
+
+
+			Priority- Ready to use, fully closed
+			Potential- Fully open, partially open
+		   Climbing-
+			Toggle both (only if not already climbed and both are the same)
+			Toggle back one (potentially only if front one is shut)
+			Toggle front one
+		   Elevator-
+		    Move up
+			Move down
+		   Potentially vision-
+			Follow single stripe on the ground
+			Align with double stripes on rockets & cargo ship
+		*/
+		
+		
+		}
+	}

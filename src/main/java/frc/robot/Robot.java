@@ -8,23 +8,21 @@
 package frc.robot;
 
 
-import javax.lang.model.util.ElementScanner6;
+import com.revrobotics.CANPIDController;
 
 //Import needed classes
 import com.ctre.phoenix.motorcontrol.ControlMode;	// Import classes from CTRE
-import com.ctre.phoenix.motorcontrol.can.TalonSRX;
 import com.ctre.phoenix.motorcontrol.*;
 
-import com.revrobotics.CANSparkMax; 
-import com.revrobotics.CANDigitalInput; 			//import class (spark max) from rev robotics
+import com.revrobotics.CANSparkMax; 			//import class (spark max) from rev robotics
 import com.revrobotics.CANSparkMaxLowLevel.MotorType;
 
-import edu.wpi.first.wpilibj.CAN;
-import edu.wpi.first.wpilibj.DigitalInput;
-// import edu.wpi.first.wpilibj.CameraServer;	// Import WPILib classes
+import edu.wpi.first.wpilibj.AnalogInput;
+import edu.wpi.first.wpilibj.DigitalInput;	// Import WPILib classes
 import edu.wpi.first.wpilibj.DoubleSolenoid;
 import edu.wpi.first.wpilibj.TimedRobot;
 import edu.wpi.first.wpilibj.Joystick;
+import edu.wpi.first.wpilibj.PWMVictorSPX;
 import edu.wpi.first.wpilibj.Solenoid;
 import edu.wpi.first.wpilibj.SpeedControllerGroup;
 import edu.wpi.first.wpilibj.drive.DifferentialDrive;
@@ -32,6 +30,7 @@ import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
 import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.cscore.UsbCamera;
 import edu.wpi.first.cameraserver.CameraServer;
+import edu.wpi.first.wpilibj.Timer;
 //import edu.wpi.first.wpilibj.Sendable;
 
 import edu.wpi.first.networktables.NetworkTable;
@@ -45,8 +44,8 @@ public class Robot extends TimedRobot {
 	// Create objects
 	private DifferentialDrive driveTrain;	// Drive train
 	// Talons
-	private TalonSRX topClaw;	// running the top belt on the claw
-	private TalonSRX tallDrive;	// drive the climb mini drive train
+	private PWMVictorSPX topClaw;	// running the top belt on the claw
+	private PWMVictorSPX tallDrive;	// drive the climb mini drive train
 	
 	// Controllers
   	private Joystick driveStickLeft;
@@ -55,6 +54,7 @@ public class Robot extends TimedRobot {
 
  	public SendableChooser<String> controls = new SendableChooser<>(); //SendableChooser for drive type
 	public String controlType;
+	public String controlSet;
 
 	public SendableChooser<String> matchPhase = new SendableChooser<>();  //SendableChooser for button assignment
 	public String buttonAssignment;
@@ -64,43 +64,47 @@ public class Robot extends TimedRobot {
 	private DoubleSolenoid climbFront;
 	private Solenoid clawOpen;
 	private Solenoid clawMode;
-	
 
+	//elevator motor
+	private CANSparkMax m_elevator;
+	
 	private DigitalInput jumpA;		//In case we use jumpers for position again this year
 	private DigitalInput jumpB;
 
+	private AnalogInput ultrasonicSensor;
 
 	//vision?
 	private double centerX = 0.0;
-
-
-
-	// Create variables to store joystick and limit switches values
-	boolean button1Pressed = false;	// Spinny bois spin in, failsafe false
-	boolean button2Pressed = false;	// Spinny bois spin out, failsafe false
-	boolean button3Pressed = false;	// Arm down, failsafe false
-	boolean button4Pressed = false;	// Arm open, failsafe false
-	boolean button5Pressed = false;	// Arm up, failsafe false
-	boolean button6Pressed = false;	// Arm close, failsafe false
-	boolean button12Pressed = false;	// Button 12, failsafe false
-	boolean RB = false;				// Spinny bois spin in, failsafe false
-	boolean LB = false;				// Spinny bois spin out, failsafe false
-	boolean jumperA = false;		// Position jumper A, failsafe false
-	boolean jumperB = false;		// Position jumper B, failsafe false
 	
+	// Create variables to store joystick and limit switches values
+	boolean downArrowPressed = false;   
+	boolean upArrowPressed = false;
+	boolean buttonAPressed = false;
+	boolean buttonBPressed = false; 
+	boolean buttonXPressed = false; 
+	boolean buttonYPressed = false; 
+	boolean L1Pressed = false;  
+	boolean L2Pressed = false;  
+	
+	/*boolean jumperA = false;        // Position jumper A, failsafe false
+    boolean jumperB = false;        // Position jumper B, failsafe false
+	*/
+
 	double speed = 0.5;		// Drive speed multiplier, initial 0.5
 	double driveY = 0.0;	// Drive y (f/b), initial 0
 	double driveX = 0.0;	// Drive y (rot), initial 0
 
 	int robotLocation = 0;	// Robot location, failsafe 0 (go nowhere)
-
-	String gameData = "";	// Game data, failsafe empty
-
+	int target = 239;
 
 	private NetworkTableEntry sizeEntry;
 	private NetworkTableEntry xEntry;
 	private NetworkTableEntry yEntry;
 	private NetworkTable table;
+
+	private Timer timer;
+	Timer elevatorTimer;
+	boolean timerCheck; //checks elevator timer before reset
 
 	@Override
 	public void robotInit() {	// Run when robot is turned on. Initialize m.controllers, etc.
@@ -116,59 +120,86 @@ public class Robot extends TimedRobot {
 
 		driveTrain = new DifferentialDrive(leftmotors, rightmotors);
 
-		CANSparkMax m_elevator = new CANSparkMax(4, MotorType.kBrushless); //for elevator
+		m_elevator = new CANSparkMax(4, MotorType.kBrushless); //for elevator
 		
 		climbBack = new DoubleSolenoid(0, 1); //parameters are in and out channels
 		climbFront = new DoubleSolenoid(2, 3);
 		clawOpen = new Solenoid(4);
 		clawMode = new Solenoid(5);
-		/*middleClaw = new DoubleSolenoid(0, 1);
-		clawLeft = new Solenoid(2);
-		clawRight = new Solenoid(2);*/
 
-		jumpA = new DigitalInput(2);
-		jumpB = new DigitalInput(3);
+		jumpA = new DigitalInput(0);
+		jumpB = new DigitalInput(1);
 
+		ultrasonicSensor = new AnalogInput(0);
 
 		// Initialize arm
-		topClaw = new TalonSRX(0);	// Initialize top claw belt motor
-		tallDrive = new TalonSRX(1); // Initialize tall drive wheel motor
-		
+		topClaw = new PWMVictorSPX(0);	// Initialize top claw belt motor
+		tallDrive = new PWMVictorSPX(1); // Initialize tall drive wheel motor
 		
 		// Initialize controllers
-    driveStickLeft = new Joystick(0);	// Initialize left joystick
-    driveStickRight = new Joystick(1); //Initialize right joystick
-	armGamepad = new Joystick(2);	// Initialize gamepad
+		driveStickLeft = new Joystick(0);	// Initialize left joystick
+		driveStickRight = new Joystick(1); //Initialize right joystick
+		armGamepad = new Joystick(2);	// Initialize gamepad
 
-	//controls = new SendableChooser<Integer>();
-	controls.setDefaultOption("Joysticks", "Tank");
-	controls.addOption("One joystick", "Arcade");
-	controls.addOption("Controller", "Contr");
-	controlType = controls.getSelected();
-	System.out.println(controlType);
-	SmartDashboard.putString("Controls selected", controlType);
-	SmartDashboard.putData("Teleop controls", controls);
+		//controls = new SendableChooser<Integer>();
+		controls.setDefaultOption("Joysticks", "Tank");
+		controls.addOption("One joystick", "Arcade");
+		controls.addOption("Controller", "Contr");
+		controls.addOption("Curvature", "Cheesy");
+		controlType = controls.getSelected();
+		System.out.println(controlType);
+		SmartDashboard.putString("Controls selected", controlType);
+		SmartDashboard.putData("Teleop controls", controls);
 
-	matchPhase.setDefaultOption("Teleoperated", "Regular Uses");
-	matchPhase.addOption("Climb time", "Climbing assignments");
-	matchPhase.addOption("Already climbed", "Can't do both");
-	buttonAssignment = matchPhase.getSelected();
-	System.out.println(buttonAssignment);
-	SmartDashboard.putString("Button uses", buttonAssignment);
-	SmartDashboard.putData("Match Phase", matchPhase);
-			// Find new camera server code!!!  NP 1/22/2019
-		 //CameraServer.getInstance().startAutomaticCapture();	// Start camera stream to DS
+		matchPhase.setDefaultOption("Teleoperated", "Regular Uses");
+		matchPhase.addOption("Climb time", "Climbing assignments");
+		matchPhase.addOption("Already climbed", "Can't do both");
+		buttonAssignment = matchPhase.getSelected();
+		System.out.println(buttonAssignment);
+		SmartDashboard.putString("Button uses", buttonAssignment);
+		SmartDashboard.putData("Match Phase", matchPhase);
 
-		 UsbCamera camera = CameraServer.getInstance().startAutomaticCapture();
+		UsbCamera camera = CameraServer.getInstance().startAutomaticCapture();
 		camera.setResolution(IMG_WIDTH, IMG_HEIGHT);
 
 		NetworkTableInstance inst = NetworkTableInstance.getDefault();
 		table = inst.getTable("GRIP").getSubTable("myBlobsReport");
+
+		timer = new Timer();
+		elevatorTimer = new Timer();
+	}
+
+	private int getUltrasonicDistance(AnalogInput sensor) {
+		double rawVoltage = sensor.getVoltage();
+		int cm = (int)(rawVoltage * 102.4);
+
+		return cm;
+	}
+
+	private int speedToTarget(int target, int current) {
+		double multiplier = 80 / 15.46;
+		int direction = 0;
+		if (target > current) {
+			direction = 1;
+		} else if (target < current) {
+			direction = -1;
+		} else {
+			direction = 0;
+		}
+		int speed = (int)(multiplier * Math.sqrt(direction * (target - current)));
+
+		return speed;
+	}
+
+	@Override
+	public void autonomousInit() {
+		timer.reset();
+		timer.start();
 	}
 
 	@Override
 	public void autonomousPeriodic() {
-		sizeEntry = table.getEntry("size");
+		/*sizeEntry = table.getEntry("size");
 		xEntry = table.getEntry("x");
 		yEntry = table.getEntry("y");
 
@@ -178,16 +209,22 @@ public class Robot extends TimedRobot {
 
 		System.out.println("Blob 0 size: " + size + " (" + centerX + ", " + y + ")");
 
-		driveTrain.arcadeDrive(0.1, ((IMG_WIDTH / 2) - centerX) * 0.01);
+		driveTrain.arcadeDrive(0.1, ((IMG_WIDTH / 2) - centerX) * 0.01);*/
+
+		System.out.println("Distance: " + getUltrasonicDistance(ultrasonicSensor) + " cm");
+		System.out.println("Target: " + target + " cm");
+		System.out.println("Distance to target: " + (target - getUltrasonicDistance(ultrasonicSensor)) + " cm");
+		System.out.println("Motor Speed: " + (speedToTarget(target, getUltrasonicDistance(ultrasonicSensor)) * 100) + "%");
 	}
 
 	@Override
 	public void teleopPeriodic() {	// Periodic teleop code (run every (10ms?) while teleop is active)
 		SmartDashboard.updateValues();
+		controlSet=controlType;
 		controlType=controls.getSelected();
-		System.out.println(controlType);
-		if (controlType == "Tank")
-		{	
+		if(controlSet!=controlType)
+			System.out.println(controlType);
+		if (controlType == "Tank") {	
 			if (driveStickLeft.getRawButton(1) && !driveStickRight.getRawButton(1)) {
 				double y = driveStickLeft.getY() * driveStickLeft.getThrottle();
 				driveTrain.arcadeDrive(-1 * y, 0);
@@ -205,79 +242,141 @@ public class Robot extends TimedRobot {
 				double right = driveStickRight.getY() * driveStickRight.getThrottle();
 				driveTrain.tankDrive(-1 * left, -1 * right);
 			}
-		} else if (controlType == "Arcade")
-		{
+		} else if (controlType == "Arcade") {
 			speed = driveStickLeft.getRawAxis(3) + 1.1;	// Get value of joystick throttle
 			driveY = -driveStickLeft.getY() / speed;
 			driveX = driveStickLeft.getZ() / 1.5;
 			driveTrain.arcadeDrive(driveY, driveX);
-		} else  // Does this need to be titled controlType == gamepad??  -Mr P
-		{
-			if (armGamepad.getRawButton(5)&&!armGamepad.getRawButton(6))
-   			{
+		} 
+		else if (controlType == "Cheesy") {
+            driveY = -1*driveStickLeft.getY()* driveStickLeft.getThrottle();
+            driveX = driveStickRight.getZ();
+            driveTrain.curvatureDrive(driveY, driveX, driveStickRight.getTrigger());
+        }
+		else /* Does this need to be titled controlType == gamepad??  -Mr P */ {
+			if (armGamepad.getRawButton(5) && !armGamepad.getRawButton(6)) {
     		  double y = -1 * armGamepad.getRawAxis(1);
     		  driveTrain.arcadeDrive(y, 0);
-    		} else if (!armGamepad.getRawButton(5)&&armGamepad.getRawButton(6))
-    		{
+    		} else if (!armGamepad.getRawButton(5) && armGamepad.getRawButton(6)) {
     		  double y = -1 * armGamepad.getRawAxis(5);
     		  driveTrain.arcadeDrive(y, 0);
-    		} else if ((armGamepad.getRawButton(5)&&armGamepad.getRawButton(6))&&Math.abs(armGamepad.getRawAxis(1))<Math.abs(armGamepad.getRawAxis(2)))
-    		{
+    		} else if ((armGamepad.getRawButton(5) && armGamepad.getRawButton(6)) && Math.abs(armGamepad.getRawAxis(1)) < Math.abs(armGamepad.getRawAxis(2))) {
     		  double y = -1 * armGamepad.getRawAxis(1);
     		  driveTrain.arcadeDrive(y, 0);
-    		} else if ((armGamepad.getRawButton(5)&&armGamepad.getRawButton(6))&&Math.abs(armGamepad.getRawAxis(1))>Math.abs(armGamepad.getRawAxis(2)))
-    		{
+    		} else if ((armGamepad.getRawButton(5) && armGamepad.getRawButton(6)) && Math.abs(armGamepad.getRawAxis(1)) > Math.abs(armGamepad.getRawAxis(2))) {
     		  double y = -1 * armGamepad.getRawAxis(5);
     		  driveTrain.arcadeDrive(y, 0);
-    		} else
-    		{
+    		} else {
     		  double left = -1 * armGamepad.getRawAxis(1);
     		  double right = -1 * armGamepad.getRawAxis(5);
     		  driveTrain.tankDrive(left, right);
 			}
 		}
 		
-
-		button3Pressed = false;
-		button5Pressed = false;
-		if (armGamepad.getPOV() == 180) {button3Pressed = true; /*System.out.println("[INFO] POV Down");*/}
-		if (armGamepad.getPOV() == 0) {button5Pressed = true; /*System.out.println("[INFO] POV Up");*/}
-		if (armGamepad.getRawButton(2) == true) {button4Pressed = true; /*System.out.println("[INFO] Close Gripper");*/} else { button4Pressed = false;}
-		if (armGamepad.getRawButton(4) == true) {button6Pressed = true; /*System.out.println("[INFO] Open Gripper");*/} else { button6Pressed = false;}
-		
 		//button boi hours
 		
-		//buttons we need
+		if (armGamepad.getPOV(0) == 180) {downArrowPressed = true;} //elevator down (down arrow)
+		if (armGamepad.getPOV(0) == 0) {upArrowPressed = true;} //elevator up (up arrow)
+ 	    if (armGamepad.getRawButton(1) == true) {buttonAPressed = true;} //open/close claw (A)
+ 	    if (armGamepad.getRawButton(2) == true) {buttonBPressed = true;} //(B)
+ 	    if (armGamepad.getRawButton(3) == true) {buttonXPressed = true;} //Switch mode (X)
+ 	    if (armGamepad.getRawButton(4)==true) {buttonYPressed =true;} //Both Climb Pistons down (Y)
+ 	    if (armGamepad.getRawButton(5)== true) {L1Pressed = true;} //back piston up on elevator (L1)
+        if (armGamepad.getRawButton(6)== true) {L2Pressed = true;} //front piston up on elevator (L2)
+	  
 		
-		/*
-		if(true) //button for climb up
+		int openClose = 2; //1 = about to be open (physically closed), 0 = about to be closed (physically open)
+		if(buttonAPressed)
 		{
-			climbFront.set(DoubleSolenoid.Value.kForward);	//put both climb soleniods extended
-			climbBack.set(DoubleSolenoid.Value.kForward);
+			if(openClose ==1)
+			{
+				clawOpen.set(false);
+				openClose = 2;
+			}
+			if(openClose == 2)
+			{
+				clawOpen.set(true);
+				openClose = 1;
+			}
 		}
-		if(true) //button for climb up
+		
+		int mode = 1; //1 = about to be hatch 2 = about to be cargo/ball
+		if(buttonXPressed)
 		{
-			climbFront.set(DoubleSolenoid.Value.kForward);	//put both climb soleniods extended
-			climbBack.set(DoubleSolenoid.Value.kForward);
+			if(mode == 1)
+			{
+				clawMode.set(false);
+				mode = 2;
+			}
+			if(mode == 2 && openClose == 0)
+			{
+				clawMode.set(true);
+				mode = 1;
+			}
 		}
-		*/
 
-		/* Claw-
-			Hatch Panel Mode / Cargo Mode (piston up/down)
-			Open
-			Close
-			//^ Vanessa added this
+		
+       if(upArrowPressed)		//elevator
+		{
+			if(timerCheck){ //reset the timer if the timercheck was reset
+				elevatorTimer.reset();
+				timerCheck=false;
+				elevatorTimer.start();
+			}
+			if (elevatorTimer.get() <= 0.25 || !(buttonBPressed) )
+				m_elevator.set(0.4);
+			else
+				m_elevator.set(0.8);
+       }
+       if(downArrowPressed)
+      	 {
+			if(timerCheck){ //reset the timer if the timercheck was reset
+				elevatorTimer.reset();
+				timerCheck=false;
+				elevatorTimer.start();
+			}
+			if (elevatorTimer.get() <= 0.25 || !(buttonBPressed) )
+				m_elevator.set(-0.2);
+			else
+				m_elevator.set(-0.6);
+      	 }
+		if(!(downArrowPressed) && !(upArrowPressed))
+			{
+				timerCheck=true; //reset the timercheck if the buttons were let go of
+			}
 
 
-			Priority- Ready to use, fully closed
-			Potential- Fully open, partially open
-		   Climbing-
-			Toggle both (only if not already climbed and both are the same)
-			Toggle back one (potentially only if front one is shut)
-			Toggle front one
-		   Elevator-
-		    Move up
-			Move down
+        if(buttonYPressed) //button for climb pistons down
+        {
+			timer.reset();	// Set timer to 0
+			timer.start();
+			climbFront.set(DoubleSolenoid.Value.kForward);  //put both climb soleniods extended
+			if(timer.get() > 5)
+			{
+				climbBack.set(DoubleSolenoid.Value.kForward);
+			}
+        }
+        if(L2Pressed) //button for front climb up
+        {
+            climbFront.set(DoubleSolenoid.Value.kReverse);  //put both climb soleniods extended
+        }
+        if(L1Pressed) //button for back climb up
+        {
+            climbBack.set(DoubleSolenoid.Value.kReverse);   //put both climb soleniods extended
+		}
+		
+		double LTValue = armGamepad.getRawAxis(2); //left trigger		drive back
+		double RTValue = armGamepad.getRawAxis(3); //right trigger		drive forwads
+		if (RTValue > 0 && LTValue == 0) {
+			tallDrive.set(RTValue);
+		} else if (LTValue > 0 && RTValue == 0) {
+			tallDrive.set(-LTValue);
+		} else {
+			tallDrive.set(0.0);
+		}
+        
+
+		/* 
 		   Potentially vision-
 			Follow single stripe on the ground
 			Align with double stripes on rockets & cargo ship

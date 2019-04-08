@@ -8,6 +8,8 @@
 package frc.robot;
 
 
+import javax.lang.model.util.ElementScanner6;
+
 //Import needed classes
 import com.ctre.phoenix.motorcontrol.ControlMode;	// Import classes from CTRE
 import com.ctre.phoenix.motorcontrol.can.TalonSRX;
@@ -19,14 +21,17 @@ import edu.wpi.first.wpilibj.Joystick;
 import edu.wpi.first.wpilibj.Spark;
 import edu.wpi.first.wpilibj.SpeedControllerGroup;
 import edu.wpi.first.wpilibj.drive.DifferentialDrive;
+import edu.wpi.first.wpilibj.smartdashboard.SendableChooser;
+import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.cscore.UsbCamera;
 import edu.wpi.first.cameraserver.CameraServer;
+//import edu.wpi.first.wpilibj.Sendable;
 
 import edu.wpi.first.networktables.NetworkTable;
 import edu.wpi.first.networktables.NetworkTableEntry;
 import edu.wpi.first.networktables.NetworkTableInstance;
 
-public class LancebotTest extends TimedRobot {
+public class Robot extends TimedRobot {
 	private final int IMG_WIDTH = 320;
 	private final int IMG_HEIGHT = 240;
 
@@ -40,10 +45,11 @@ public class LancebotTest extends TimedRobot {
   private Joystick driveStickLeft;
   private Joystick driveStickRight;	// Joystick
 	private Joystick armGamepad;	// Gamepad
+
+ 	public SendableChooser<String> controls = new SendableChooser<>();
+	public String controlType;
 	// Solenoids
 	private DoubleSolenoid gripperSolenoid;	// Gripper solenoid
-
-	private final Object imgLock = new Object();
 	private double centerX = 0.0;
 
 	// Create variables to store joystick and limit switches values
@@ -66,6 +72,7 @@ public class LancebotTest extends TimedRobot {
 	int robotLocation = 0;	// Robot location, failsafe 0 (go nowhere)
 
 	String gameData = "";	// Game data, failsafe empty
+
 
 	private NetworkTableEntry sizeEntry;
 	private NetworkTableEntry xEntry;
@@ -95,9 +102,17 @@ public class LancebotTest extends TimedRobot {
 		// Initialize controllers
     driveStickLeft = new Joystick(0);	// Initialize left joystick
     driveStickRight = new Joystick(1); //Initialize right joystick
-		armGamepad = new Joystick(2);	// Initialize gamepad
+	armGamepad = new Joystick(2);	// Initialize gamepad
 
-		// Find new camera server code!!!  NP 1/22/2019
+	//controls = new SendableChooser<Integer>();
+	controls.setDefaultOption("Joysticks", "Tank");
+	controls.addOption("One joystick", "Arcade");
+	controls.addOption("Controller", "Contr");
+	controlType = controls.getSelected();
+	System.out.println(controlType);
+	SmartDashboard.putString("Controls selected", controlType);
+	SmartDashboard.putData("Teleop controls", controls);
+			// Find new camera server code!!!  NP 1/22/2019
 		 //CameraServer.getInstance().startAutomaticCapture();	// Start camera stream to DS
 
 		 UsbCamera camera = CameraServer.getInstance().startAutomaticCapture();
@@ -114,34 +129,70 @@ public class LancebotTest extends TimedRobot {
 		yEntry = table.getEntry("y");
 
 		double size = sizeEntry.getDoubleArray(new double[1])[0];
-		double x = xEntry.getDoubleArray(new double[1])[0];
+		centerX = xEntry.getDoubleArray(new double[1])[0];
 		double y = yEntry.getDoubleArray(new double[1])[0];
 
-		System.out.println("Blob 0 size: " + size + " (" + x + ", " + y + ")");
+		System.out.println("Blob 0 size: " + size + " (" + centerX + ", " + y + ")");
 
-		driveTrain.arcadeDrive(0.1, ((IMG_WIDTH / 2) - x) * 0.01);
+		driveTrain.arcadeDrive(0.1, ((IMG_WIDTH / 2) - centerX) * 0.01);
 	}
 
 	@Override
 	public void teleopPeriodic() {	// Periodic teleop code (run every (10ms?) while teleop is active)
-	
-		if (driveStickLeft.getRawButton(1) && !driveStickRight.getRawButton(1)) {
-			double y = driveStickLeft.getY() * driveStickLeft.getThrottle();
-			driveTrain.arcadeDrive(-1 * y, 0);
-		} else if (driveStickRight.getRawButton(1) && !driveStickLeft.getRawButton(1)) {
-			double y = driveStickRight.getY() * driveStickRight.getThrottle();
-			driveTrain.arcadeDrive(-1 * y, 0);
-		} else if ((driveStickLeft.getRawButton(1) && driveStickRight.getRawButton(1))&&Math.abs(driveStickLeft.getY())<Math.abs(driveStickRight.getY())) {
-			double y = driveStickLeft.getY() * driveStickLeft.getThrottle();
-			driveTrain.arcadeDrive(-1 * y, 0);
-		} else if ((driveStickLeft.getRawButton(1) && driveStickRight.getRawButton(1))&&Math.abs(driveStickRight.getY())<Math.abs(driveStickLeft.getY())) {
-			double y = driveStickRight.getY() * driveStickRight.getThrottle();
-			driveTrain.arcadeDrive(-1 * y, 0);
-		} else {
-			double left = driveStickLeft.getY() * driveStickLeft.getThrottle();
-			double right = driveStickRight.getY() * driveStickRight.getThrottle();
-			driveTrain.tankDrive(-1 * left, -1 * right);
+		SmartDashboard.updateValues();
+		controlType=controls.getSelected();
+		System.out.println(controlType);
+		if (controlType == "Tank")
+		{	
+			if (driveStickLeft.getRawButton(1) && !driveStickRight.getRawButton(1)) {
+				double y = driveStickLeft.getY() * driveStickLeft.getThrottle();
+				driveTrain.arcadeDrive(-1 * y, 0);
+			} else if (driveStickRight.getRawButton(1) && !driveStickLeft.getRawButton(1)) {
+				double y = driveStickRight.getY() * driveStickRight.getThrottle();
+				driveTrain.arcadeDrive(-1 * y, 0);
+			} else if ((driveStickLeft.getRawButton(1) && driveStickRight.getRawButton(1))&&Math.abs(driveStickLeft.getY())<Math.abs(driveStickRight.getY())) {
+				double y = driveStickLeft.getY() * driveStickLeft.getThrottle();
+				driveTrain.arcadeDrive(-1 * y, 0);
+			} else if ((driveStickLeft.getRawButton(1) && driveStickRight.getRawButton(1))&&Math.abs(driveStickRight.getY())<Math.abs(driveStickLeft.getY())) {
+				double y = driveStickRight.getY() * driveStickRight.getThrottle();
+				driveTrain.arcadeDrive(-1 * y, 0);
+			} else {
+				double left = driveStickLeft.getY() * driveStickLeft.getThrottle();
+				double right = driveStickRight.getY() * driveStickRight.getThrottle();
+				driveTrain.tankDrive(-1 * left, -1 * right);
+			}
+		} else if (controlType == "Arcade")
+		{
+			speed = driveStickLeft.getRawAxis(3) + 1.1;	// Get value of joystick throttle
+			driveY = -driveStickLeft.getY() / speed;
+			driveX = driveStickLeft.getZ() / 1.5;
+			driveTrain.arcadeDrive(driveY, driveX);
+		} else
+		{
+			if (armGamepad.getRawButton(5)&&!armGamepad.getRawButton(6))
+   			{
+    		  double y = -1 * armGamepad.getRawAxis(1);
+    		  driveTrain.arcadeDrive(y, 0);
+    		} else if (!armGamepad.getRawButton(5)&&armGamepad.getRawButton(6))
+    		{
+    		  double y = -1 * armGamepad.getRawAxis(5);
+    		  driveTrain.arcadeDrive(y, 0);
+    		} else if ((armGamepad.getRawButton(5)&&armGamepad.getRawButton(6))&&Math.abs(armGamepad.getRawAxis(1))<Math.abs(armGamepad.getRawAxis(2)))
+    		{
+    		  double y = -1 * armGamepad.getRawAxis(1);
+    		  driveTrain.arcadeDrive(y, 0);
+    		} else if ((armGamepad.getRawButton(5)&&armGamepad.getRawButton(6))&&Math.abs(armGamepad.getRawAxis(1))>Math.abs(armGamepad.getRawAxis(2)))
+    		{
+    		  double y = -1 * armGamepad.getRawAxis(5);
+    		  driveTrain.arcadeDrive(y, 0);
+    		} else
+    		{
+    		  double left = -1 * armGamepad.getRawAxis(1);
+    		  double right = -1 * armGamepad.getRawAxis(5);
+    		  driveTrain.tankDrive(left, right);
+			}
 		}
+		
 
 		button3Pressed = false;
 		button5Pressed = false;

@@ -1,0 +1,10 @@
+<textarea id="text"></textarea>
+<button onclick="fix()">Fix</button>
+<script>
+    function fix() {
+        var text = document.getElementById('text').value;
+        text.match(/(//(\s*[a-z]*[0-9]*)*)\n\s*{/).forEach(function (element) {
+
+        });
+    }
+</script>
